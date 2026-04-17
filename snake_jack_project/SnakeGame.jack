@@ -1,0 +1,436 @@
+class SnakeGame {
+    field Array xs, ys;
+    field int length, dir, foodX, foodY, score, seed;
+    field int cellSize, cols, rows, originX, originY, maxLen;
+    field boolean alive, quitRequested;
+
+    constructor SnakeGame new() {
+        let maxLen = 200;
+        let xs = Array.new(maxLen);
+        let ys = Array.new(maxLen);
+
+        let cellSize = 8;
+        let cols = 40;
+        let rows = 24;
+        let originX = 96;
+        let originY = 40;
+
+        let seed = 73;
+        let score = 0;
+        let alive = false;
+        let quitRequested = false;
+
+        return this;
+    }
+
+    method void dispose() {
+        do xs.dispose();
+        do ys.dispose();
+        do Memory.deAlloc(this);
+        return;
+    }
+
+    method void run() {
+        var boolean keepRunning;
+
+        let quitRequested = false;
+        let keepRunning = true;
+
+        while (keepRunning) {
+            do initGame();
+
+            while (alive) {
+                do handleInput();
+
+                if (alive) {
+                    do step();
+                    do Sys.wait(90);
+                }
+            }
+
+            if (quitRequested) {
+                let keepRunning = false;
+            } else {
+                do showGameOver();
+                do waitForRestartOrQuit();
+
+                if (quitRequested) {
+                    let keepRunning = false;
+                }
+            }
+        }
+
+        return;
+    }
+
+    method void initGame() {
+        var int midX, midY;
+
+        do Screen.clearScreen();
+        do drawInstructions();
+        do drawBoundary();
+
+        let score = 0;
+        let alive = true;
+        let quitRequested = false;
+        let dir = 2;
+
+        let midX = 10;
+        let midY = 10;
+        let length = 4;
+
+        let xs[0] = midX;
+        let ys[0] = midY;
+        let xs[1] = midX - 1;
+        let ys[1] = midY;
+        let xs[2] = midX - 2;
+        let ys[2] = midY;
+        let xs[3] = midX - 3;
+        let ys[3] = midY;
+
+        do stirSeed(midX + midY + length);
+
+        do drawCell(xs[3], ys[3], true);
+        do drawCell(xs[2], ys[2], true);
+        do drawCell(xs[1], ys[1], true);
+        do drawCell(xs[0], ys[0], true);
+
+        do placeFood();
+        do drawScore();
+        return;
+    }
+
+    method void drawInstructions() {
+        do Output.moveCursor(0, 0);
+        do Output.printString("Snake  Score: 0");
+        do Output.printString("                    ");
+
+        do Output.moveCursor(1, 0);
+        do Output.printString("Arrows or WASD to move. Q quits.");
+        do Output.printString("                    ");
+        return;
+    }
+
+    method void drawBoundary() {
+        var int left, top, right, bottom;
+
+        let left = originX - 2;
+        let top = originY - 2;
+        let right = originX + Math.multiply(cols, cellSize) - 1;
+        let bottom = originY + Math.multiply(rows, cellSize) - 1;
+
+        do Screen.setColor(true);
+        do Screen.drawRectangle(left, top, right, top + 1);
+        do Screen.drawRectangle(left, bottom, right, bottom + 1);
+        do Screen.drawRectangle(left, top, left + 1, bottom);
+        do Screen.drawRectangle(right, top, right + 1, bottom);
+        return;
+    }
+
+    method void drawScore() {
+        do Output.moveCursor(0, 14);
+        do Output.printInt(score);
+        do Output.printChar(32);
+        do Output.printChar(32);
+        do Output.printChar(32);
+        do Output.printChar(32);
+        do Output.printChar(32);
+        return;
+    }
+
+    method void drawCell(int gx, int gy, boolean black) {
+        var int px1, py1, px2, py2;
+
+        let px1 = originX + Math.multiply(gx, cellSize);
+        let py1 = originY + Math.multiply(gy, cellSize);
+        let px2 = px1 + cellSize - 2;
+        let py2 = py1 + cellSize - 2;
+
+        do Screen.setColor(black);
+        do Screen.drawRectangle(px1, py1, px2, py2);
+        return;
+    }
+
+    method void drawFood(int gx, int gy, boolean black) {
+        var int px1, py1, px2, py2;
+
+        let px1 = originX + Math.multiply(gx, cellSize) + 2;
+        let py1 = originY + Math.multiply(gy, cellSize) + 2;
+        let px2 = px1 + cellSize - 5;
+        let py2 = py1 + cellSize - 5;
+
+        do Screen.setColor(black);
+        do Screen.drawRectangle(px1, py1, px2, py2);
+        return;
+    }
+
+    method void handleInput() {
+        var char key;
+        var int mix;
+
+        let key = Keyboard.keyPressed();
+        let mix = xs[0] + ys[0] + score + dir;
+        if (~(key = 0)) {
+            let mix = mix + 37;
+        }
+        do stirSeed(mix);
+
+        if ((key = 81) | (key = 113)) {
+            let alive = false;
+            let quitRequested = true;
+            return;
+        }
+
+        if (((key = 130) | (key = 65)) | (key = 97)) {
+            if (~(dir = 2)) {
+                let dir = 4;
+            }
+        }
+
+        if (((key = 131) | (key = 87)) | (key = 119)) {
+            if (~(dir = 3)) {
+                let dir = 1;
+            }
+        }
+
+        if (((key = 132) | (key = 68)) | (key = 100)) {
+            if (~(dir = 4)) {
+                let dir = 2;
+            }
+        }
+
+        if (((key = 133) | (key = 83)) | (key = 115)) {
+            if (~(dir = 1)) {
+                let dir = 3;
+            }
+        }
+
+        return;
+    }
+
+    method void step() {
+        var int nx, ny, tailX, tailY, i, limit, newLen;
+        var boolean grow;
+
+        let nx = xs[0];
+        let ny = ys[0];
+
+        if (dir = 1) {
+            let ny = ny - 1;
+        }
+        if (dir = 2) {
+            let nx = nx + 1;
+        }
+        if (dir = 3) {
+            let ny = ny + 1;
+        }
+        if (dir = 4) {
+            let nx = nx - 1;
+        }
+
+        if ((((nx < 0) | (ny < 0)) | (~(nx < cols))) | (~(ny < rows))) {
+            let alive = false;
+            return;
+        }
+
+        let grow = false;
+        if ((nx = foodX) & (ny = foodY)) {
+            let grow = true;
+        }
+
+        if (grow) {
+            let limit = length;
+        } else {
+            let limit = length - 1;
+        }
+
+        if (hitsBody(nx, ny, limit)) {
+            let alive = false;
+            return;
+        }
+
+        if (grow) {
+            if (length = maxLen) {
+                let alive = false;
+                return;
+            }
+        }
+
+        do stirSeed(nx + ny + score + dir);
+
+        let tailX = xs[length - 1];
+        let tailY = ys[length - 1];
+
+        if (grow) {
+            let newLen = length + 1;
+        } else {
+            let newLen = length;
+        }
+
+        let i = newLen - 1;
+        while (i > 0) {
+            let xs[i] = xs[i - 1];
+            let ys[i] = ys[i - 1];
+            let i = i - 1;
+        }
+
+        let xs[0] = nx;
+        let ys[0] = ny;
+
+        if (grow) {
+            let length = newLen;
+            let score = score + 1;
+            do drawScore();
+            do placeFood();
+        } else {
+            do drawCell(tailX, tailY, false);
+        }
+
+        do drawCell(nx, ny, true);
+        return;
+    }
+
+    method boolean hitsBody(int x, int y, int limit) {
+        var int i;
+
+        let i = 0;
+        while (i < limit) {
+            if ((xs[i] = x) & (ys[i] = y)) {
+                return true;
+            }
+            let i = i + 1;
+        }
+        return false;
+    }
+
+    method void placeFood() {
+        var int tries;
+        var boolean done;
+
+        let tries = 0;
+        let done = false;
+
+        while (~done) {
+            do stirSeed(xs[0] + ys[0] + score + tries);
+
+            let foodX = mod((Math.multiply(seed, 3) + 7), cols);
+            let foodY = mod((Math.multiply(seed, 5) + 11), rows);
+
+            if (~hitsBody(foodX, foodY, length)) {
+                let done = true;
+            } else {
+                let tries = tries + 1;
+                if (tries > 100) {
+                    do placeFoodSequential();
+                    return;
+                }
+            }
+        }
+
+        do drawFood(foodX, foodY, true);
+        return;
+    }
+
+    method void placeFoodSequential() {
+        var int x, y;
+
+        let y = 0;
+        while (y < rows) {
+            let x = 0;
+            while (x < cols) {
+                if (~hitsBody(x, y, length)) {
+                    let foodX = x;
+                    let foodY = y;
+                    do drawFood(foodX, foodY, true);
+                    return;
+                }
+                let x = x + 1;
+            }
+            let y = y + 1;
+        }
+
+        let alive = false;
+        return;
+    }
+
+    method void stirSeed(int extra) {
+        let seed = seed + 211 + extra;
+        while (seed > 10000) {
+            let seed = seed - 10000;
+        }
+        while (seed < 1) {
+            let seed = seed + 10000;
+        }
+
+        let seed = Math.multiply(seed, 3) + 19;
+        while (seed > 9973) {
+            let seed = seed - 9973;
+        }
+        while (seed < 1) {
+            let seed = seed + 9973;
+        }
+        return;
+    }
+
+    method int mod(int value, int base) {
+        var int q;
+        var int r;
+
+        let q = Math.divide(value, base);
+        let r = value - Math.multiply(q, base);
+        while (r < 0) {
+            let r = r + base;
+        }
+        while (~(r < base)) {
+            let r = r - base;
+        }
+        return r;
+    }
+
+    method void showGameOver() {
+        do Screen.clearScreen();
+        do Output.moveCursor(8, 20);
+        do Output.printString("GAME OVER");
+        do Output.moveCursor(10, 16);
+        do Output.printString("Final score: ");
+        do Output.printInt(score);
+        do Output.moveCursor(12, 12);
+        do Output.printString("Press Q to quit.");
+        do Output.moveCursor(13, 10);
+        do Output.printString("Press R to restart.");
+        return;
+    }
+
+    method void waitForRestartOrQuit() {
+        var char key;
+        var boolean waiting;
+        var int mix;
+
+        let waiting = true;
+        while (waiting) {
+            let key = Keyboard.keyPressed();
+            let mix = score + seed + 1;
+            if (~(key = 0)) {
+                let mix = mix + 53;
+            }
+            do stirSeed(mix);
+
+            if ((key = 81) | (key = 113)) {
+                let quitRequested = true;
+                let waiting = false;
+            }
+
+            if ((key = 82) | (key = 114)) {
+                let waiting = false;
+            }
+
+            do Sys.wait(50);
+        }
+
+        while (~(Keyboard.keyPressed() = 0)) {
+            do Sys.wait(50);
+        }
+
+        return;
+    }
+}
